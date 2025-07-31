@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Micro-Frontend Framework</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+        }
+        #app-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        nav {
+            background: #333;
+            color: white;
+            padding: 1rem;
+        }
+        nav a {
+            color: white;
+            margin: 0 1rem;
+            text-decoration: none;
+        }
+        nav a.active {
+            font-weight: bold;
+        }
+        #micro-frontend-container {
+            flex: 1;
+            padding: 1rem;
+        }
+        .micro-frontend {
+            display: none;
+        }
+        .micro-frontend.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div id="app-container">
+        <nav id="navigation"></nav>
+        <div id="micro-frontend-container"></div>
+    </div>
+    <script>
+        // Micro-Frontend Framework Core
+        class MicroFrontendFramework {
+            constructor() {
+                this.microFrontends = new Map();
+                this.eventBus = new EventTarget();
+                this.currentMicroFrontend = null;
+            }
+
+            // Register a micro-frontend
+            registerMicroFrontend(name, config) {
+                this.microFrontends.set(name, {
+                    ...config,
+                    instance: null,
+                    element: document.createElement('div')
+                });
+                this.microFrontends.get(name).element.className = 'micro-frontend';
+                this.microFrontends.get(name).element.id = `mf-${name}`;
+                document.getElementById('micro-frontend-container').appendChild(
+                    this.microFrontends.get(name).element
+                );
+            }
+
+            // Load a micro-frontend
+            async loadMicroFrontend(name) {
+                if (!this.microFrontends.has(name)) return;
+
+                const mf = this.microFrontends.get(name);
+
+                // Unmount current micro-frontend
+                if (this.currentMicroFrontend && this.currentMicroFrontend !== name) {
+                    const currentMf = this.microFrontends.get(this.currentMicroFrontend);
+                    if (currentMf.unmount) {
+                        currentMf.unmount(currentMf.element);
+                    }
+                    currentMf.element.classList.remove('active');
+                }
+
+                // Load if not already loaded
+                if (!mf.instance) {
+                    try {
+                        const response = await fetch(mf.url);
+                        const html = await response.text();
+                        mf.element.innerHTML = html;
+
+                        // Execute scripts
+                        const scripts = mf.element.getElementsByTagName('script');
+                        for (let script of Array.from(scripts)) {
+                            const newScript = document.createElement('script');
+                            if (script.src) {
+                                newScript.src = script.src;
+                            } else {
+                                newScript.textContent = script.textContent;
+                            }
+                            mf.element.appendChild(newScript);
+                            script.remove();
+                        }
+
+                        // Mount if mount function exists
+                        if (mf.mount) {
+                            mf.instance = mf.mount(mf.element, this.eventBus);
+                        }
+                    } catch (error) {
+                        console.error(`Failed to load micro-frontend ${name}:`, error);
+                        mf.element.innerHTML = `<p>Error loading ${name}</p>`;
+                    }
+                }
+
+                // Show the micro-frontend
+                mf.element.classList.add('active');
+                this.currentMicroFrontend = name;
+                this.updateNavigation();
+            }
+
+            // Update navigation links
+            updateNavigation() {
+                const nav = document.getElementById('navigation');
+                nav.innerHTML = '';
+                for (const [name] of this.microFrontends) {
+                    const link = document.createElement('a');
+                    link.href = `#${name}`;
+                    link.textContent = name;
+                    link.className = this.currentMicroFrontend === name ? 'active' : '';
+                    link.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        this.loadMicroFrontend(name);
+                        history.pushState({ mf: name }, '', `#${name}`);
+                    });
+                    nav.appendChild(link);
+                }
+            }
+
+            // Initialize the framework
+            init() {
+                // Handle browser navigation
+                window.addEventListener('popstate', (event) => {
+                    if (event.state && event.state.mf) {
+                        this.loadMicroFrontend(event.state.mf);
+                    }
+                });
+
+                // Load initial micro-frontend
+                const initialMf = window.location.hash.replace('#', '') || [...this.microFrontends.keys()][0];
+                if (initialMf) {
+                    this.loadMicroFrontend(initialMf);
+                }
+            }
+        }
+
+        // Initialize framework
+        const framework = new MicroFrontendFramework();
+
+        // Example micro-frontend configurations
+        framework.registerMicroFrontend('Home', {
+            url: 'mfe-home.html',
+            mount: (element, eventBus) => {
+                // Example mount logic
+                const button = element.querySelector('button');
+                if (button) {
+                    button.addEventListener('click', () => {
+                        eventBus.dispatchEvent(new CustomEvent('mfe-message', {
+                            detail: { message: 'Hello from Home!' }
+                        }));
+                    });
+                }
+                return { element };
+            },
+            unmount: (element) => {
+                // Cleanup logic
+            }
+        });
+
+        framework.registerMicroFrontend('Profile', {
+            url: 'mfe-profile.html',
+            mount: (element, eventBus) => {
+                // Example event listener
+                eventBus.addEventListener('mfe-message', (e) => {
+                    const messageDiv = element.querySelector('.message');
+                    if (messageDiv) {
+                        messageDiv.textContent = e.detail.message;
+                    }
+                });
+                return { element };
+            }
+        });
+
+        // Start the framework
+        framework.init();
+    </script>
+</body>
+</html>
